@@ -79,6 +79,7 @@ const firebaseConfig = {
 };
 
 export const FIREBASE_PROJECT_ID = firebaseConfig.projectId;
+export const FIREBASE_AUTH_DOMAIN = firebaseConfig.authDomain;
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);

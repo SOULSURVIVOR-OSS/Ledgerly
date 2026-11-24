@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useEffect, useState, useMemo, useRef } from 'react';
 import {
   User as FirebaseUser,
+  browserLocalPersistence,
+  setPersistence,
   onAuthStateChanged,
   signInWithPopup,
   signInWithRedirect,
@@ -37,6 +39,7 @@ import {
 import {
   auth,
   db,
+  FIREBASE_AUTH_DOMAIN,
   FIREBASE_PROJECT_ID,
   googleProvider,
   handleFirestoreError,
@@ -249,14 +252,21 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Test Firestore connection and handle any pending OAuth redirect result on boot
   useEffect(() => {
     testFirestoreConnection();
-    getRedirectResult(auth).catch((error: unknown) => {
-      const code = (error as { code?: string })?.code;
-      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
-        return;
-      }
-      console.warn('Google Redirect Sign-In notice:', code || error);
-      setAuthError(getFriendlyAuthError(error));
-    });
+    getRedirectResult(auth)
+      .then((result) => {
+        if (result?.user) {
+          setUser(result.user);
+          setAuthError(null);
+        }
+      })
+      .catch((error: unknown) => {
+        const code = (error as { code?: string })?.code;
+        if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+          return;
+        }
+        console.warn('Google Redirect Sign-In notice:', code || error);
+        setAuthError(getFriendlyAuthError(error));
+      });
   }, []);
 
   // Listen to Auth State
@@ -595,13 +605,28 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setAuthError(null);
     setIsSigningIn(true);
     try {
-      await signInWithPopup(auth, googleProvider);
+      try {
+        await setPersistence(auth, browserLocalPersistence);
+      } catch {
+        // Ignore persistence fallback errors in restricted storage environments
+      }
+      const credential = await signInWithPopup(auth, googleProvider);
+      if (credential?.user) {
+        setUser(credential.user);
+        setAuthError(null);
+      } else {
+        setAuthError('Google Sign-In did not return a user session. Please check browser third-party cookie/storage settings and try again.');
+      }
     } catch (error: unknown) {
       const err = error as { code?: string };
       const code = err?.code || '';
       const inIframe = typeof window !== 'undefined' && window.self !== window.top;
+      const isSameAuthOrigin =
+        typeof window !== 'undefined' && window.location.hostname === FIREBASE_AUTH_DOMAIN;
 
-      if (code === 'auth/popup-blocked' && !inIframe) {
+      // Only fall back to redirect when authDomain matches the hosting domain
+      // (cross-origin redirect fails silently in modern browsers due to storage partitioning)
+      if (code === 'auth/popup-blocked' && !inIframe && isSameAuthOrigin) {
         try {
           await signInWithRedirect(auth, googleProvider);
           return;
