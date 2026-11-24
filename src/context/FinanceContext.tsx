@@ -111,7 +111,7 @@ function getFriendlyAuthError(error: unknown): string {
 
   switch (code) {
     case 'auth/unauthorized-domain':
-      return `Google Sign-In is blocked on "${hostname}" because external hosting domains aren't authorized on Firebase project "${FIREBASE_PROJECT_ID}". For Vercel hosting, create your own free Firebase project, add "${hostname}" under Authentication → Settings → Authorized domains, and set VITE_FIREBASE_* in Vercel Environment Variables.`;
+      return `Google Sign-In is not authorized for "${hostname}". Add "${hostname}" in Firebase Console → Authentication → Settings → Authorized domains (Project: ${FIREBASE_PROJECT_ID}).`;
     case 'auth/popup-blocked':
       return 'The Google Sign-In popup was blocked by your browser. Please allow popups for this site and click Sign In again.';
     case 'auth/popup-closed-by-user':

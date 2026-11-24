@@ -1,12 +1,12 @@
 {
-  "projectId": "company-terra-7vr20",
-  "appId": "1:657916082108:web:186a7a1ee7cbdcc9a05db9",
-  "apiKey": "AIzaSyBfmmCqwzEtApwPUVHcQto8dFJO9PwpSC8",
-  "authDomain": "company-terra-7vr20.firebaseapp.com",
+  "projectId": "budgetnow-d91cd",
+  "appId": "1:561311089844:web:5400b9bc93c1b64597c3e1",
+  "apiKey": "AIzaSyBaiDn3jt-dqnMRjYuwNgSuyAtY7vfEz8o",
+  "authDomain": "budgetnow-d91cd.firebaseapp.com",
   "firestoreDatabaseId": "ai-studio-ledgerlyminimali-5d7d4350-9def-47a9-8a41-6998cae365a0",
-  "storageBucket": "company-terra-7vr20.firebasestorage.app",
-  "messagingSenderId": "657916082108",
+  "storageBucket": "budgetnow-d91cd.firebasestorage.app",
+  "messagingSenderId": "561311089844",
   "measurementId": "",
-  "oAuthClientId": "657916082108-5ku7k71df31e6fl39hoi1df4hshoii52.apps.googleusercontent.com",
+  "oAuthClientId": "561311089844-e6hhn1gjokq7bmfqijitqgnk80p2onj6.apps.googleusercontent.com",
   "recaptchaSiteKey": ""
 }

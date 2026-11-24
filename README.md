@@ -94,13 +94,11 @@ Ledgerly is built as a standard Vite single-page application and is ready for de
 3. Vercel will automatically detect the **Vite** framework preset:
    - **Build Command**: `npm run build`
    - **Output Directory**: `dist`
-4. **Enable Google Sign-In & Cloud Sync on your Vercel domain**:
-   - The default AI Studio Starter Firebase project (`company-terra-7vr20`) only authorizes AI Studio preview URLs, so external Vercel domains (`*.vercel.app`) require your own free Firebase project:
-   - Create a project in [Firebase Console](https://console.firebase.google.com) → enable **Authentication → Sign-in method → Google**.
-   - Under **Authentication → Settings → Authorized domains**, click **Add domain** and add your Vercel hostname (e.g. `your-app.vercel.app`).
-   - Create a **Firestore Database**, then paste and publish the rules from [`firestore.rules`](./firestore.rules) under **Firestore Database → Rules**.
-   - Register a **Web App (`</>`)** in **Project Settings**, then add its `firebaseConfig` values as `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, and `VITE_FIREBASE_APP_ID` in **Vercel → Project Settings → Environment Variables**.
-5. Click **Deploy** (or **Redeploy** after adding Environment Variables).
+4. **Firebase Auth & Cloud Sync**:
+   - Ledgerly is pre-configured with Firebase project `budgetnow-d91cd` via `firebase-applet-config.json` and `firestore.rules`.
+   - Ensure your Vercel deployment domain (e.g. `budgetnow.vercel.app`) is listed in **Firebase Console → Authentication → Settings → Authorized domains**.
+   - *(Optional)* Set `VITE_FIREBASE_*` variables in **Vercel → Project Settings → Environment Variables** only if you want to override `firebase-applet-config.json` with a different Firebase project.
+5. Click **Deploy**!
 
 ---
 
