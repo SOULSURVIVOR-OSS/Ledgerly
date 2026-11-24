@@ -14,20 +14,69 @@ import {
 } from 'firebase/firestore';
 import rawConfig from '../../firebase-applet-config.json';
 
+function isValidEnvOverride(
+  value: string | undefined,
+  validator: (v: string) => boolean
+): value is string {
+  if (!value) return false;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.startsWith('YOUR_') || trimmed.startsWith('MY_')) {
+    return false;
+  }
+  return validator(trimmed);
+}
+
+const env = import.meta.env;
+
 const firebaseConfig = {
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || rawConfig.projectId,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || rawConfig.appId,
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || rawConfig.apiKey,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || rawConfig.authDomain,
-  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_DATABASE_ID || rawConfig.firestoreDatabaseId || '(default)',
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || rawConfig.storageBucket,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || rawConfig.messagingSenderId,
+  projectId: isValidEnvOverride(
+    env.VITE_FIREBASE_PROJECT_ID,
+    (v) => v.length >= 4 && !/\s/.test(v) && v !== 'projectId'
+  )
+    ? env.VITE_FIREBASE_PROJECT_ID.trim()
+    : rawConfig.projectId,
+  appId: isValidEnvOverride(env.VITE_FIREBASE_APP_ID, (v) =>
+    /^\d+:\d+:web:[a-f0-9]+$/i.test(v)
+  )
+    ? env.VITE_FIREBASE_APP_ID.trim()
+    : rawConfig.appId,
+  apiKey: isValidEnvOverride(
+    env.VITE_FIREBASE_API_KEY,
+    (v) => v.startsWith('AIza') && v.length > 20
+  )
+    ? env.VITE_FIREBASE_API_KEY.trim()
+    : rawConfig.apiKey,
+  authDomain: isValidEnvOverride(
+    env.VITE_FIREBASE_AUTH_DOMAIN,
+    (v) => v.includes('.') && !/\s/.test(v)
+  )
+    ? env.VITE_FIREBASE_AUTH_DOMAIN.trim()
+    : rawConfig.authDomain,
+  firestoreDatabaseId: isValidEnvOverride(
+    env.VITE_FIREBASE_DATABASE_ID,
+    (v) => !/\s/.test(v) && v !== 'firestoreDatabaseId'
+  )
+    ? env.VITE_FIREBASE_DATABASE_ID.trim()
+    : rawConfig.firestoreDatabaseId || '(default)',
+  storageBucket: isValidEnvOverride(
+    env.VITE_FIREBASE_STORAGE_BUCKET,
+    (v) => v.includes('.') && !/\s/.test(v)
+  )
+    ? env.VITE_FIREBASE_STORAGE_BUCKET.trim()
+    : rawConfig.storageBucket,
+  messagingSenderId: isValidEnvOverride(
+    env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    (v) => /^\d{6,}$/.test(v)
+  )
+    ? env.VITE_FIREBASE_MESSAGING_SENDER_ID.trim()
+    : rawConfig.messagingSenderId,
 };
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 export enum OperationType {
   CREATE = 'create',

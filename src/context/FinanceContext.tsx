@@ -3,11 +3,15 @@ import {
   User as FirebaseUser,
   onAuthStateChanged,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut as fbSignOut,
 } from 'firebase/auth';
 import {
   collection,
   doc,
+  getDoc,
+  getDocs,
   setDoc,
   deleteDoc,
   updateDoc,
@@ -47,6 +51,9 @@ interface FinanceContextType {
   // Auth & Cloud Sync
   user: FirebaseUser | null;
   authLoading: boolean;
+  isSigningIn: boolean;
+  authError: string | null;
+  clearAuthError: () => void;
   isCloudSynced: boolean;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
@@ -93,7 +100,33 @@ interface FinanceContextType {
   // System
   resetAllData: () => Promise<void>;
   restoreSampleData: () => Promise<void>;
-  syncLocalToCloud: () => Promise<void>;
+  syncLocalToCloud: (targetUser?: FirebaseUser | null) => Promise<void>;
+}
+
+function getFriendlyAuthError(error: unknown): string {
+  const err = error as { code?: string; message?: string };
+  const code = err?.code || '';
+  const hostname = typeof window !== 'undefined' ? window.location.hostname : 'this domain';
+
+  switch (code) {
+    case 'auth/unauthorized-domain':
+      return `Google Sign-In is not authorized for "${hostname}". Add "${hostname}" in Firebase Console → Authentication → Settings → Authorized domains (Project: company-terra-7vr20).`;
+    case 'auth/popup-blocked':
+      return 'The Google Sign-In popup was blocked by your browser. Please allow popups for this site and click Sign In again.';
+    case 'auth/popup-closed-by-user':
+      return 'Google Sign-In popup was closed before completing. Click Sign In with Google to try again.';
+    case 'auth/cancelled-popup-request':
+      return 'A sign-in window is already in progress. Please complete or close it and try again.';
+    case 'auth/operation-not-allowed':
+      return 'Google Sign-In is disabled in Firebase Authentication for this project.';
+    case 'auth/api-key-not-valid.-please-pass-a-valid-api-key.':
+    case 'auth/invalid-api-key':
+      return 'Firebase API key configuration is invalid. Please check your Firebase configuration.';
+    case 'auth/network-request-failed':
+      return 'Network error while connecting to Google Sign-In. Please check your internet connection.';
+    default:
+      return err?.message || 'Unable to sign in with Google. Please try again.';
+  }
 }
 
 const FinanceContext = createContext<FinanceContextType | undefined>(undefined);
@@ -116,7 +149,11 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Auth state
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [isSigningIn, setIsSigningIn] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [isCloudSynced, setIsCloudSynced] = useState(false);
+
+  const clearAuthError = () => setAuthError(null);
 
   // Settings
   const [settings, setSettings] = useState<UserSettings>(() => {
@@ -192,9 +229,29 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return getInitialSampleData(currentMonthStr).expenseEntries;
   });
 
-  // Test Firestore connection on boot
+  // Keep ref to latest local data so async cloud bootstrap reads fresh state
+  const latestDataRef = useRef({
+    streams,
+    categories,
+    incomeEntries,
+    expenseEntries,
+    settings,
+  });
+  latestDataRef.current = {
+    streams,
+    categories,
+    incomeEntries,
+    expenseEntries,
+    settings,
+  };
+
+  // Test Firestore connection and handle any pending OAuth redirect result on boot
   useEffect(() => {
     testFirestoreConnection();
+    getRedirectResult(auth).catch((error) => {
+      console.error('Google Redirect Sign-In completion failed', error);
+      setAuthError(getFriendlyAuthError(error));
+    });
   }, []);
 
   // Listen to Auth State
@@ -203,7 +260,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setUser(currentUser);
       setAuthLoading(false);
       if (currentUser) {
-        setIsCloudSynced(true);
+        setAuthError(null);
       } else {
         setIsCloudSynced(false);
       }
@@ -211,131 +268,175 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return () => unsubscribe();
   }, []);
 
-  // Real-time Firestore Listeners when User is Authenticated
+  // Bootstrap cloud data on sign-in, then attach real-time Firestore listeners
   useEffect(() => {
     if (!user) return;
 
     const userId = user.uid;
+    let isCancelled = false;
+    const unsubscribers: Array<() => void> = [];
 
-    // 1. Streams listener
     const streamsCol = collection(db, 'users', userId, 'streams');
-    const unsubStreams = onSnapshot(
-      streamsCol,
-      (snapshot) => {
-        if (!snapshot.empty) {
-          const cloudStreams: IncomeStream[] = snapshot.docs.map((docSnap) => ({
-            id: docSnap.id,
-            ...(docSnap.data() as Omit<IncomeStream, 'id'>),
-          }));
-          setStreams(cloudStreams);
-        }
-      },
-      (error) => {
-        handleFirestoreError(error, OperationType.LIST, `users/${userId}/streams`);
-      }
-    );
-
-    // 2. Categories listener
     const categoriesCol = collection(db, 'users', userId, 'categories');
-    const unsubCategories = onSnapshot(
-      categoriesCol,
-      (snapshot) => {
-        if (!snapshot.empty) {
-          const cloudCats: ExpenseCategory[] = snapshot.docs.map((docSnap) => ({
-            id: docSnap.id,
-            ...(docSnap.data() as Omit<ExpenseCategory, 'id'>),
-          }));
-          setCategories(cloudCats);
-        }
-      },
-      (error) => {
-        handleFirestoreError(error, OperationType.LIST, `users/${userId}/categories`);
-      }
-    );
-
-    // 3. Income Entries listener
     const incomeCol = collection(db, 'users', userId, 'incomeEntries');
-    const unsubIncome = onSnapshot(
-      incomeCol,
-      (snapshot) => {
-        const cloudIncome: IncomeEntry[] = snapshot.docs.map((docSnap) => ({
-          id: docSnap.id,
-          ...(docSnap.data() as Omit<IncomeEntry, 'id'>),
-        }));
-        if (!snapshot.empty || streams.length > 0) {
-          setIncomeEntries(cloudIncome);
-        }
-      },
-      (error) => {
-        handleFirestoreError(error, OperationType.LIST, `users/${userId}/incomeEntries`);
-      }
-    );
-
-    // 4. Expense Entries listener
     const expenseCol = collection(db, 'users', userId, 'expenseEntries');
-    const unsubExpense = onSnapshot(
-      expenseCol,
-      (snapshot) => {
-        const cloudExpenses: ExpenseEntry[] = snapshot.docs.map((docSnap) => ({
-          id: docSnap.id,
-          ...(docSnap.data() as Omit<ExpenseEntry, 'id'>),
-        }));
-        if (!snapshot.empty || categories.length > 0) {
-          setExpenseEntries(cloudExpenses);
-        }
-      },
-      (error) => {
-        handleFirestoreError(error, OperationType.LIST, `users/${userId}/expenseEntries`);
-      }
-    );
-
-    // 5. User Profile listener
     const userDocRef = doc(db, 'users', userId);
-    const unsubUserDoc = onSnapshot(
-      userDocRef,
-      (docSnap) => {
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          if (data.currency || data.monthlyBudgetGoal !== undefined) {
-            setSettings((prev) => ({
-              ...prev,
-              currency: data.currency || prev.currency,
-              darkMode: data.darkMode ?? prev.darkMode,
-              monthlyBudgetGoal: data.monthlyBudgetGoal ?? prev.monthlyBudgetGoal,
-            }));
-          }
-        } else {
-          // Initialize user doc if not yet created
-          setDoc(
+
+    const bootstrapAndSubscribe = async () => {
+      try {
+        // 1. Ensure user profile doc exists
+        const userSnap = await getDoc(userDocRef);
+        if (isCancelled) return;
+
+        if (!userSnap.exists()) {
+          const curSettings = latestDataRef.current.settings;
+          await setDoc(
             userDocRef,
             {
               uid: userId,
               email: user.email || '',
               displayName: user.displayName || '',
               photoURL: user.photoURL || '',
-              currency: settings.currency,
-              darkMode: settings.darkMode,
-              monthlyBudgetGoal: settings.monthlyBudgetGoal || 50000,
+              currency: curSettings.currency,
+              darkMode: curSettings.darkMode,
+              monthlyBudgetGoal: curSettings.monthlyBudgetGoal || 50000,
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
             },
             { merge: true }
-          ).catch((e) => {
-            console.warn('Initial profile doc write failed', e);
-          });
+          );
         }
-      },
-      (error) => {
-        handleFirestoreError(error, OperationType.GET, `users/${userId}`);
+
+        // 2. Check if this user already has cloud collections
+        const [streamsSnap, categoriesSnap, incomeSnap, expenseSnap] = await Promise.all([
+          getDocs(streamsCol),
+          getDocs(categoriesCol),
+          getDocs(incomeCol),
+          getDocs(expenseCol),
+        ]);
+        if (isCancelled) return;
+
+        const hasCloudData =
+          !streamsSnap.empty ||
+          !categoriesSnap.empty ||
+          !incomeSnap.empty ||
+          !expenseSnap.empty;
+
+        const local = latestDataRef.current;
+        const hasLocalData =
+          local.streams.length > 0 ||
+          local.categories.length > 0 ||
+          local.incomeEntries.length > 0 ||
+          local.expenseEntries.length > 0;
+
+        // Only migrate local data when the cloud account has no existing records yet
+        if (!hasCloudData && hasLocalData) {
+          await syncLocalToCloud(user);
+          if (isCancelled) return;
+        }
+
+        // 3. Attach real-time listeners after migration check finishes
+        unsubscribers.push(
+          onSnapshot(
+            streamsCol,
+            (snapshot) => {
+              const cloudStreams: IncomeStream[] = snapshot.docs.map((docSnap) => ({
+                id: docSnap.id,
+                ...(docSnap.data() as Omit<IncomeStream, 'id'>),
+              }));
+              setStreams(cloudStreams);
+            },
+            (error) => {
+              handleFirestoreError(error, OperationType.LIST, `users/${userId}/streams`);
+            }
+          )
+        );
+
+        unsubscribers.push(
+          onSnapshot(
+            categoriesCol,
+            (snapshot) => {
+              const cloudCats: ExpenseCategory[] = snapshot.docs.map((docSnap) => ({
+                id: docSnap.id,
+                ...(docSnap.data() as Omit<ExpenseCategory, 'id'>),
+              }));
+              setCategories(cloudCats);
+            },
+            (error) => {
+              handleFirestoreError(error, OperationType.LIST, `users/${userId}/categories`);
+            }
+          )
+        );
+
+        unsubscribers.push(
+          onSnapshot(
+            incomeCol,
+            (snapshot) => {
+              const cloudIncome: IncomeEntry[] = snapshot.docs.map((docSnap) => ({
+                id: docSnap.id,
+                ...(docSnap.data() as Omit<IncomeEntry, 'id'>),
+              }));
+              setIncomeEntries(cloudIncome);
+            },
+            (error) => {
+              handleFirestoreError(error, OperationType.LIST, `users/${userId}/incomeEntries`);
+            }
+          )
+        );
+
+        unsubscribers.push(
+          onSnapshot(
+            expenseCol,
+            (snapshot) => {
+              const cloudExpenses: ExpenseEntry[] = snapshot.docs.map((docSnap) => ({
+                id: docSnap.id,
+                ...(docSnap.data() as Omit<ExpenseEntry, 'id'>),
+              }));
+              setExpenseEntries(cloudExpenses);
+            },
+            (error) => {
+              handleFirestoreError(error, OperationType.LIST, `users/${userId}/expenseEntries`);
+            }
+          )
+        );
+
+        unsubscribers.push(
+          onSnapshot(
+            userDocRef,
+            (docSnap) => {
+              if (docSnap.exists()) {
+                const data = docSnap.data();
+                if (data.currency || data.monthlyBudgetGoal !== undefined || data.darkMode !== undefined) {
+                  setSettings((prev) => ({
+                    ...prev,
+                    currency: data.currency || prev.currency,
+                    darkMode: data.darkMode ?? prev.darkMode,
+                    monthlyBudgetGoal: data.monthlyBudgetGoal ?? prev.monthlyBudgetGoal,
+                  }));
+                }
+              }
+            },
+            (error) => {
+              handleFirestoreError(error, OperationType.GET, `users/${userId}`);
+            }
+          )
+        );
+
+        setIsCloudSynced(true);
+      } catch (error) {
+        console.error('Cloud sync initialization error:', error);
+        setIsCloudSynced(false);
+        setAuthError(
+          'Signed in, but cloud sync could not connect to Firestore right now. Local storage remains active.'
+        );
       }
-    );
+    };
+
+    bootstrapAndSubscribe();
 
     return () => {
-      unsubStreams();
-      unsubCategories();
-      unsubIncome();
-      unsubExpense();
-      unsubUserDoc();
+      isCancelled = true;
+      unsubscribers.forEach((unsub) => unsub());
     };
   }, [user]);
 
@@ -394,9 +495,12 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [expenseEntries]);
 
   // Cloud Sync Migration Helper
-  const syncLocalToCloud = async () => {
-    if (!user) return;
-    const userId = user.uid;
+  const syncLocalToCloud = async (targetUser?: FirebaseUser | null) => {
+    const activeUser = targetUser || user || auth.currentUser;
+    if (!activeUser) return;
+    const userId = activeUser.uid;
+    const local = latestDataRef.current;
+
     try {
       const batch = writeBatch(db);
 
@@ -406,19 +510,19 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         userRef,
         {
           uid: userId,
-          email: user.email || '',
-          displayName: user.displayName || '',
-          photoURL: user.photoURL || '',
-          currency: settings.currency,
-          darkMode: settings.darkMode,
-          monthlyBudgetGoal: settings.monthlyBudgetGoal || 50000,
+          email: activeUser.email || '',
+          displayName: activeUser.displayName || '',
+          photoURL: activeUser.photoURL || '',
+          currency: local.settings.currency,
+          darkMode: local.settings.darkMode,
+          monthlyBudgetGoal: local.settings.monthlyBudgetGoal || 50000,
           updatedAt: new Date().toISOString(),
         },
         { merge: true }
       );
 
       // Save all current streams
-      for (const s of streams) {
+      for (const s of local.streams) {
         const streamRef = doc(db, 'users', userId, 'streams', s.id);
         batch.set(streamRef, {
           id: s.id,
@@ -430,7 +534,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
 
       // Save all current categories
-      for (const c of categories) {
+      for (const c of local.categories) {
         const catRef = doc(db, 'users', userId, 'categories', c.id);
         batch.set(catRef, {
           id: c.id,
@@ -442,7 +546,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
 
       // Save all income entries
-      for (const inc of incomeEntries) {
+      for (const inc of local.incomeEntries) {
         const incRef = doc(db, 'users', userId, 'incomeEntries', inc.id);
         batch.set(incRef, {
           id: inc.id,
@@ -458,7 +562,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
 
       // Save all expense entries
-      for (const exp of expenseEntries) {
+      for (const exp of local.expenseEntries) {
         const expRef = doc(db, 'users', userId, 'expenseEntries', exp.id);
         batch.set(expRef, {
           id: exp.id,
@@ -482,27 +586,40 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Auth actions
   const signInWithGoogle = async () => {
+    if (isSigningIn) return;
+    setAuthError(null);
+    setIsSigningIn(true);
     try {
-      const result = await signInWithPopup(auth, googleProvider);
-      if (result.user) {
-        // Upload any existing local records to Firestore
-        setTimeout(() => {
-          syncLocalToCloud();
-        }, 500);
+      await signInWithPopup(auth, googleProvider);
+    } catch (error: unknown) {
+      const err = error as { code?: string };
+      const inIframe = typeof window !== 'undefined' && window.self !== window.top;
+      if (err?.code === 'auth/popup-blocked' && !inIframe) {
+        try {
+          await signInWithRedirect(auth, googleProvider);
+          return;
+        } catch (redirectError) {
+          console.error('Google Redirect Sign-In failed', redirectError);
+          setAuthError(getFriendlyAuthError(redirectError));
+          return;
+        }
       }
-    } catch (error) {
       console.error('Google Sign-In failed', error);
-      throw error;
+      setAuthError(getFriendlyAuthError(error));
+    } finally {
+      setIsSigningIn(false);
     }
   };
 
   const signOut = async () => {
     try {
+      setAuthError(null);
       await fbSignOut(auth);
       setUser(null);
       setIsCloudSynced(false);
     } catch (error) {
       console.error('Sign out failed', error);
+      setAuthError('Could not sign out right now. Please try again.');
     }
   };
 
@@ -850,10 +967,16 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     if (user) {
       try {
-        await updateDoc(doc(db, 'users', user.uid), {
-          ...newSettings,
-          updatedAt: new Date().toISOString(),
-        });
+        await setDoc(
+          doc(db, 'users', user.uid),
+          {
+            uid: user.uid,
+            email: user.email || '',
+            ...newSettings,
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
       } catch (error) {
         console.warn('Could not sync settings to cloud', error);
       }
@@ -938,6 +1061,9 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setActiveTab,
         user,
         authLoading,
+        isSigningIn,
+        authError,
+        clearAuthError,
         isCloudSynced,
         signInWithGoogle,
         signOut,

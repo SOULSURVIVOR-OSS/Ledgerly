@@ -37,6 +37,7 @@ export const Overview: React.FC = () => {
     toggleExpenseEntry,
     setActiveTab,
     user,
+    isSigningIn,
     signInWithGoogle,
   } = useFinance();
 
@@ -150,10 +151,11 @@ export const Overview: React.FC = () => {
           </div>
           <button
             onClick={signInWithGoogle}
-            className="self-start sm:self-auto flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-white dark:text-neutral-900 shrink-0 shadow-2xs transition-all cursor-pointer"
+            disabled={isSigningIn}
+            className="self-start sm:self-auto flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-white dark:text-neutral-900 shrink-0 shadow-2xs transition-all cursor-pointer disabled:opacity-60 disabled:cursor-wait"
           >
             <LogIn className="w-3.5 h-3.5" />
-            <span>Sign In to Save Cloud Data</span>
+            <span>{isSigningIn ? 'Signing in...' : 'Sign In to Save Cloud Data'}</span>
           </button>
         </div>
       ) : (
