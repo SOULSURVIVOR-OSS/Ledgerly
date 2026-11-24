@@ -1,0 +1,21 @@
+# Dependencies & Build Outputs
+node_modules/
+build/
+dist/
+coverage/
+bun.lock
+
+# OS & Logs
+.DS_Store
+*.log
+
+# Environment files
+.env*
+!.env.example
+
+# Local & AI Studio internal files (not needed for Vercel/public hosting)
+.playwright-cli/
+.aistudio/
+metadata.json
+firebase-blueprint.json
+workspace/

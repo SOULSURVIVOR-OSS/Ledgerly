@@ -1,0 +1,97 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Connection test document
+    match /test/connection {
+      allow read: if true;
+    }
+
+    // User Profile Document
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow list: if false; // Users cannot list other users
+      allow create, update: if isOwner(userId)
+        && request.resource.data.uid == userId
+        && request.resource.data.email is string
+        && request.resource.data.email.size() <= 256;
+      allow delete: if isOwner(userId);
+
+      // Income Streams Subcollection
+      match /streams/{streamId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && isValidId(streamId)
+          && request.resource.data.id is string
+          && request.resource.data.name is string
+          && request.resource.data.name.size() > 0
+          && request.resource.data.name.size() <= 100;
+        allow delete: if isOwner(userId);
+      }
+
+      // Income Entries Subcollection
+      match /incomeEntries/{entryId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && isValidId(entryId)
+          && request.resource.data.id is string
+          && request.resource.data.streamId is string
+          && request.resource.data.clientName is string
+          && request.resource.data.clientName.size() > 0
+          && request.resource.data.clientName.size() <= 150
+          && request.resource.data.amount is number
+          && request.resource.data.amount >= 0
+          && request.resource.data.date is string
+          && request.resource.data.isChecked is bool;
+        allow delete: if isOwner(userId);
+      }
+
+      // Expense Categories Subcollection
+      match /categories/{categoryId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && isValidId(categoryId)
+          && request.resource.data.id is string
+          && request.resource.data.name is string
+          && request.resource.data.name.size() > 0
+          && request.resource.data.name.size() <= 100;
+        allow delete: if isOwner(userId);
+      }
+
+      // Expense Entries Subcollection
+      match /expenseEntries/{entryId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && isValidId(entryId)
+          && request.resource.data.id is string
+          && request.resource.data.categoryId is string
+          && request.resource.data.name is string
+          && request.resource.data.name.size() > 0
+          && request.resource.data.name.size() <= 150
+          && request.resource.data.amount is number
+          && request.resource.data.amount >= 0
+          && request.resource.data.date is string
+          && request.resource.data.isChecked is bool;
+        allow delete: if isOwner(userId);
+      }
+    }
+  }
+}
