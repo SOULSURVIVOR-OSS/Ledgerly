@@ -28,13 +28,13 @@ function isValidEnvOverride(
 
 const env = import.meta.env;
 
+const hasCustomProject = isValidEnvOverride(
+  env.VITE_FIREBASE_PROJECT_ID,
+  (v) => v.length >= 4 && !/\s/.test(v) && v !== 'projectId'
+);
+
 const firebaseConfig = {
-  projectId: isValidEnvOverride(
-    env.VITE_FIREBASE_PROJECT_ID,
-    (v) => v.length >= 4 && !/\s/.test(v) && v !== 'projectId'
-  )
-    ? env.VITE_FIREBASE_PROJECT_ID.trim()
-    : rawConfig.projectId,
+  projectId: hasCustomProject ? env.VITE_FIREBASE_PROJECT_ID!.trim() : rawConfig.projectId,
   appId: isValidEnvOverride(env.VITE_FIREBASE_APP_ID, (v) =>
     /^\d+:\d+:web:[a-f0-9]+$/i.test(v)
   )
@@ -51,18 +51,24 @@ const firebaseConfig = {
     (v) => v.includes('.') && !/\s/.test(v)
   )
     ? env.VITE_FIREBASE_AUTH_DOMAIN.trim()
+    : hasCustomProject
+    ? `${env.VITE_FIREBASE_PROJECT_ID!.trim()}.firebaseapp.com`
     : rawConfig.authDomain,
   firestoreDatabaseId: isValidEnvOverride(
     env.VITE_FIREBASE_DATABASE_ID,
     (v) => !/\s/.test(v) && v !== 'firestoreDatabaseId'
   )
     ? env.VITE_FIREBASE_DATABASE_ID.trim()
+    : hasCustomProject
+    ? '(default)'
     : rawConfig.firestoreDatabaseId || '(default)',
   storageBucket: isValidEnvOverride(
     env.VITE_FIREBASE_STORAGE_BUCKET,
     (v) => v.includes('.') && !/\s/.test(v)
   )
     ? env.VITE_FIREBASE_STORAGE_BUCKET.trim()
+    : hasCustomProject
+    ? `${env.VITE_FIREBASE_PROJECT_ID!.trim()}.firebasestorage.app`
     : rawConfig.storageBucket,
   messagingSenderId: isValidEnvOverride(
     env.VITE_FIREBASE_MESSAGING_SENDER_ID,
@@ -72,6 +78,7 @@ const firebaseConfig = {
     : rawConfig.messagingSenderId,
 };
 
+export const FIREBASE_PROJECT_ID = firebaseConfig.projectId;
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);

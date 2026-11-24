@@ -87,15 +87,20 @@ A modern, minimalist personal finance and budget management SaaS web application
 
 ## ☁️ Deploying to Vercel
 
-Ledgerly is built as a standard Vite single-page application and is ready for 1-click deployment on [Vercel](https://vercel.com):
+Ledgerly is built as a standard Vite single-page application and is ready for deployment on [Vercel](https://vercel.com):
 
 1. Push your code to your GitHub repository.
 2. In the [Vercel Dashboard](https://vercel.com/new), import the `Ledgerly` repository.
 3. Vercel will automatically detect the **Vite** framework preset:
    - **Build Command**: `npm run build`
    - **Output Directory**: `dist`
-4. *(Optional)* Add any custom Firebase environment variables defined in `.env.example` in Vercel's **Environment Variables** settings if you wish to override the default configuration.
-5. Click **Deploy**. Your app will be live with full SSL, global CDN edge caching, and zero configuration!
+4. **Enable Google Sign-In & Cloud Sync on your Vercel domain**:
+   - The default AI Studio Starter Firebase project (`company-terra-7vr20`) only authorizes AI Studio preview URLs, so external Vercel domains (`*.vercel.app`) require your own free Firebase project:
+   - Create a project in [Firebase Console](https://console.firebase.google.com) → enable **Authentication → Sign-in method → Google**.
+   - Under **Authentication → Settings → Authorized domains**, click **Add domain** and add your Vercel hostname (e.g. `your-app.vercel.app`).
+   - Create a **Firestore Database**, then paste and publish the rules from [`firestore.rules`](./firestore.rules) under **Firestore Database → Rules**.
+   - Register a **Web App (`</>`)** in **Project Settings**, then add its `firebaseConfig` values as `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, and `VITE_FIREBASE_APP_ID` in **Vercel → Project Settings → Environment Variables**.
+5. Click **Deploy** (or **Redeploy** after adding Environment Variables).
 
 ---
 

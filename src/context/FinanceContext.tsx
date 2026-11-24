@@ -37,6 +37,7 @@ import {
 import {
   auth,
   db,
+  FIREBASE_PROJECT_ID,
   googleProvider,
   handleFirestoreError,
   OperationType,
@@ -110,7 +111,7 @@ function getFriendlyAuthError(error: unknown): string {
 
   switch (code) {
     case 'auth/unauthorized-domain':
-      return `Google Sign-In is not authorized for "${hostname}". Add "${hostname}" in Firebase Console → Authentication → Settings → Authorized domains (Project: company-terra-7vr20).`;
+      return `Google Sign-In is blocked on "${hostname}" because external hosting domains aren't authorized on Firebase project "${FIREBASE_PROJECT_ID}". For Vercel hosting, create your own free Firebase project, add "${hostname}" under Authentication → Settings → Authorized domains, and set VITE_FIREBASE_* in Vercel Environment Variables.`;
     case 'auth/popup-blocked':
       return 'The Google Sign-In popup was blocked by your browser. Please allow popups for this site and click Sign In again.';
     case 'auth/popup-closed-by-user':
@@ -248,8 +249,12 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Test Firestore connection and handle any pending OAuth redirect result on boot
   useEffect(() => {
     testFirestoreConnection();
-    getRedirectResult(auth).catch((error) => {
-      console.error('Google Redirect Sign-In completion failed', error);
+    getRedirectResult(auth).catch((error: unknown) => {
+      const code = (error as { code?: string })?.code;
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+        return;
+      }
+      console.warn('Google Redirect Sign-In notice:', code || error);
       setAuthError(getFriendlyAuthError(error));
     });
   }, []);
@@ -593,18 +598,26 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       await signInWithPopup(auth, googleProvider);
     } catch (error: unknown) {
       const err = error as { code?: string };
+      const code = err?.code || '';
       const inIframe = typeof window !== 'undefined' && window.self !== window.top;
-      if (err?.code === 'auth/popup-blocked' && !inIframe) {
+
+      if (code === 'auth/popup-blocked' && !inIframe) {
         try {
           await signInWithRedirect(auth, googleProvider);
           return;
         } catch (redirectError) {
-          console.error('Google Redirect Sign-In failed', redirectError);
+          console.warn('Google Redirect Sign-In failed:', redirectError);
           setAuthError(getFriendlyAuthError(redirectError));
           return;
         }
       }
-      console.error('Google Sign-In failed', error);
+
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+        setAuthError(getFriendlyAuthError(error));
+        return;
+      }
+
+      console.warn('Google Sign-In failed:', code || error);
       setAuthError(getFriendlyAuthError(error));
     } finally {
       setIsSigningIn(false);
